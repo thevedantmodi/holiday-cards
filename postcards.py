@@ -391,7 +391,14 @@ def main():
     args = ap.parse_args()
 
     register_fonts()
-    cfg = load_config(args.config)
+    config = Path(args.config)
+    if not config.exists() and args.config == "config.toml":
+        config = HERE / "config.example.toml"
+        print("note: no config.toml found, using config.example.toml. Copy it to "
+              "config.toml and add your details (config.toml is not committed).", file=sys.stderr)
+    elif not config.exists():
+        sys.exit(f"config file not found: {config}")
+    cfg = load_config(config)
     friends = load_friends(args.csv)
     if not friends:
         sys.exit("no friends found in CSV (needs a 'name' column)")

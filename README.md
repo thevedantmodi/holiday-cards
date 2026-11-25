@@ -15,11 +15,15 @@ short note, your return address, a stamp box and the friend's address.
 
    Any size works. Each photo is cropped to fill its spot, and phone photos
    come out the right way up.
-2. Edit `config.toml`: your signature, greeting, date, return address and note.
-3. Make your friends list:
+2. Make your own settings file and friends list from the examples:
+   ```bash
+   cp config.example.toml config.toml
+   ```
    ```bash
    cp friends.example.csv friends.csv
    ```
+   Then edit `config.toml` (signature, greeting, date, return address, note)
+   and fill in `friends.csv`.
 4. Make the cards. They are written to `out/postcards.pdf`:
    ```bash
    python3 postcards.py friends.csv
@@ -39,8 +43,20 @@ If a photo is missing, a labeled gray box shows where it goes. You need Python
 | `country`  |          | printed only when it isn't the US |
 | `message`  |          | replaces the note on the back for this friend |
 
-`friends.csv` and `photos/` are in `.gitignore`, so your friends' addresses and
-your photos stay out of git.
+## Keeping personal info out of git
+
+Only the example files are committed. Your real details live in files that are
+in `.gitignore`, so `git add -A` won't pick them up:
+
+| file | what's in it |
+|------|--------------|
+| `config.toml` | your name, return address and note |
+| `friends.csv` (or any `friends*.csv`) | your friends' names and addresses |
+| `photos/` | your photos |
+| `out/` | the generated PDFs, which contain all of the above |
+
+If there's no `config.toml`, the script falls back to `config.example.toml` and
+tells you so.
 
 ## Fixing a crop
 

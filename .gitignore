@@ -1,5 +1,9 @@
-out/
-friends.csv
-__pycache__/
+# Personal info stays on your machine: only the *.example files are committed.
+config.toml
+friends*.csv
+!friends.example.csv
 photos/*
 !photos/.gitkeep
+
+out/
+__pycache__/
