@@ -270,7 +270,7 @@ def draw_front(c, cfg):
     background(c)
 
     # photo grid: one large photo, two stacked on the right
-    gx, gy, gw, gh = 0.55 * inch, 0.72 * inch, 4.9 * inch, 2.62 * inch
+    gx, gy, gw, gh = 0.55 * inch, 0.74 * inch, 4.9 * inch, 2.48 * inch
     gap = 0.09 * inch
     big_w = (gw - gap) * 0.625
     small_w = gw - gap - big_w
@@ -283,13 +283,13 @@ def draw_front(c, cfg):
     top_y = gy + gh + 0.2 * inch
     sw = tracked(c, gx + 0.05 * inch, top_y, cfg["signoff"], "sans", 9, 3.2, GREEN)
     sig_x = gx + 0.05 * inch + sw + 6
-    sig_size = fit_size(c, cfg["signature"], "script", 54, gx + gw - sig_x - 0.6 * inch)
+    sig_size = fit_size(c, cfg["signature"], "script", 46, gx + gw - sig_x - 0.6 * inch)
     c.setFillColor(INK)
     c.setFont("script", sig_size)
-    c.drawString(sig_x, top_y - 0.1 * inch, cfg["signature"])
+    c.drawString(sig_x, top_y - 0.08 * inch, cfg["signature"])
 
     # headline + date under the photos
-    base_y = 0.24 * inch
+    base_y = 0.3 * inch
     date_w = c.stringWidth(cfg["dateline"], "sans", 8.5) + 2.6 * (len(cfg["dateline"]) - 1)
     tracked(c, gx + gw, base_y + 2, cfg["dateline"], "sans", 8.5, 2.6, GREEN, align="right")
     head_size = fit_size(c, cfg["headline"], "serif", 38, gw - date_w - 0.25 * inch)
@@ -299,6 +299,20 @@ def draw_front(c, cfg):
 
     # holly sprig in the empty top-right corner
     holly(c, gx + gw - 0.22 * inch, top_y + 0.02 * inch, 0.95, -12)
+
+    if cfg.get("border", True):
+        border(c)
+
+
+def border(c):
+    """A classic double rule in red: a bold outer line and a fine inner one."""
+    c.setStrokeColor(RED)
+    c.setLineWidth(2.2)
+    o = 0.11 * inch
+    c.rect(o, o, W - 2 * o, H - 2 * o, stroke=1, fill=0)
+    c.setLineWidth(0.5)
+    i = 0.165 * inch
+    c.rect(i, i, W - 2 * i, H - 2 * i, stroke=1, fill=0)
 
 
 # --------------------------------------------------------------------------
