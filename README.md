@@ -8,10 +8,12 @@ short note, your return address, a stamp box and the friend's address.
 
 ## Quick start
 
-1. Put four photos in the `photos/` folder, named:
+1. Put your photos in the `photos/` folder, named:
    - `main.jpg`: the large photo on the front (a portrait photo works best)
    - `top.jpg` and `bottom.jpg`: the two small photos on the front
-   - `back.jpg`: the small photo on the back
+   - `back.jpg` (optional): by default the back shows a cartoon of the
+     Manhattan skyline from Gantry Plaza State Park inside a wreath. To use
+     a photo instead, set `back = "photos/back.jpg"` in `config.toml`.
 
    Any size works. Each photo is cropped to fill its spot, and phone photos
    come out the right way up.
@@ -42,6 +44,12 @@ If a photo is missing, a labeled gray box shows where it goes. You need Python
 | `city`, `state`, `zip` | yes | |
 | `country`  |          | printed only when it isn't the US |
 | `message`  |          | replaces the note on the back for this friend |
+
+To send one card to several people at the same address, put all their names
+in the `name` column, separated by semicolons and wrapped in quotes:
+`"Alex Rivera; Jordan Lee"`. Each name gets its own line, and the note greets
+them as "Alex & Jordan". Every row needs the same number of commas as the
+header, so leave empty fields (`,,`) for columns you skip.
 
 ## Keeping personal info out of git
 

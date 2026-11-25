@@ -12,6 +12,10 @@ PDF can be printed double-sided ("flip on short edge") on 4x6 card stock.
 Usage:
     python3 postcards.py friends.csv
     python3 postcards.py friends.csv -o out/cards.pdf
+
+Several people on one card: separate their names with semicolons in the
+name column, e.g. "Alex Rivera; Jordan Lee". Each name gets its own line and
+{first_name} becomes "Alex & Jordan".
 """
 
 import argparse
@@ -29,6 +33,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen.canvas import Canvas
 
+from skyline import skyline_badge
+
 HERE = Path(__file__).resolve().parent
 W, H = 6 * inch, 4 * inch  # landscape postcard
 DPI = 300                  # resolution photos are resampled to
@@ -37,7 +43,7 @@ INK = HexColor("#1c1c1c")
 SOFT = HexColor("#6f6a62")
 RULE = HexColor("#d9d3c7")
 RED = HexColor("#9e1b2b")      # cranberry
-GREEN = HexColor("#1f4a33")    # pine
+GREEN = HexColor("#1e7a46")    # pine
 LEAF = HexColor("#2e6b47")
 PAPER = (247, 245, 240)
 
@@ -53,7 +59,7 @@ DEFAULT_CONFIG = {
         "main": "photos/main.jpg",
         "top": "photos/top.jpg",
         "bottom": "photos/bottom.jpg",
-        "back": "photos/back.jpg",
+        "back": "skyline",
     },
     "focus": {},
 }
@@ -102,14 +108,25 @@ def load_friends(path):
     return friends
 
 
+def names(friend):
+    """'Alex Rivera; Jordan Lee' -> ['Alex Rivera', 'Jordan Lee']"""
+    return [n.strip() for n in friend["name"].split(";") if n.strip()]
+
+
+def first_names(friend):
+    """-> 'Alex', 'Alex & Jordan', or 'Alex, Jordan & Sam'"""
+    firsts = [n.split()[0] for n in names(friend)]
+    return firsts[0] if len(firsts) == 1 else ", ".join(firsts[:-1]) + " & " + firsts[-1]
+
+
 def address_lines(friend):
-    lines = [friend["name"], friend.get("address1", ""), friend.get("address2", "")]
+    lines = [*names(friend), friend.get("address1", ""), friend.get("address2", "")]
     state_zip = " ".join(p for p in (friend.get("state", ""), friend.get("zip", "")) if p)
     lines.append(", ".join(p for p in (friend.get("city", ""), state_zip) if p))
     country = friend.get("country", "")
     if country and country.upper() not in ("US", "USA", "UNITED STATES"):
         lines.append(country.upper())
-    return [l for l in lines if l]
+    return [l.strip() for l in lines if l]
 
 
 # --------------------------------------------------------------------------
@@ -283,7 +300,7 @@ def draw_front(c, cfg):
     top_y = gy + gh + 0.2 * inch
     sw = tracked(c, gx + 0.05 * inch, top_y, cfg["signoff"], "sans", 9, 3.2, GREEN)
     sig_x = gx + 0.05 * inch + sw + 6
-    sig_size = fit_size(c, cfg["signature"], "script", 46, gx + gw - sig_x - 0.6 * inch)
+    sig_size = fit_size(c, cfg["signature"], "script", 32, gx + gw - sig_x - 0.6 * inch)
     c.setFillColor(INK)
     c.setFont("script", sig_size)
     c.drawString(sig_x, top_y - 0.08 * inch, cfg["signature"])
@@ -292,7 +309,7 @@ def draw_front(c, cfg):
     base_y = 0.3 * inch
     date_w = c.stringWidth(cfg["dateline"], "sans", 8.5) + 2.6 * (len(cfg["dateline"]) - 1)
     tracked(c, gx + gw, base_y + 2, cfg["dateline"], "sans", 8.5, 2.6, GREEN, align="right")
-    head_size = fit_size(c, cfg["headline"], "serif", 38, gw - date_w - 0.25 * inch)
+    head_size = fit_size(c, cfg["headline"], "serif", 32, gw - date_w - 0.25 * inch)
     c.setFillColor(RED)
     c.setFont("serif", head_size)
     c.drawString(gx - 0.04 * inch, base_y, cfg["headline"])
@@ -332,22 +349,27 @@ def draw_back(c, friend, cfg):
                 RED if i == 0 else SOFT)
         y -= 8.5
 
-    # small photo
+    # small photo, or the skyline-in-a-wreath illustration
     px, pw = m, divider_x - m - 0.25 * inch
     ptop = y - 0.08 * inch
     pbottom = 1.0 * inch
-    place_photo(c, cfg, "back", px, pbottom, pw, ptop - pbottom)
+    if cfg["photos"]["back"] == "skyline":
+        # the badge reaches 1.17 r above its centre and 1.4 r below (the bow)
+        r = min((ptop - pbottom) / 2.6, pw / 2.4)
+        skyline_badge(c, px + pw / 2, pbottom + 1.42 * r, r)
+    else:
+        place_photo(c, cfg, "back", px, pbottom, pw, ptop - pbottom)
 
     # short note under the photo
-    first = friend["name"].split()[0]
+    first = first_names(friend)
     note = (friend.get("message") or cfg["note"]).replace("\\n", " ")
-    note = note.format(first_name=first, name=friend["name"], sender=cfg["sender"])
-    lines = simpleSplit(note, "serif", 12, pw)
+    note = note.format(first_name=first, name=" & ".join(names(friend)), sender=cfg["sender"])
+    lines = simpleSplit(note, "serif", 11, pw)
     if len(lines) > 3:
         print(f"warning: note for {friend['name']} is too long and was cut off", file=sys.stderr)
         lines = lines[:3]
     c.setFillColor(INK)
-    c.setFont("serif", 12)
+    c.setFont("serif", 11)
     for i, line in enumerate(lines):
         c.drawString(px, pbottom - 0.22 * inch - i * 14, line)
 
@@ -367,13 +389,19 @@ def draw_back(c, friend, cfg):
     c.setDash()
     tracked(c, sx + sw / 2, sy + sh / 2 - 2, "STAMP", "sans", 5.5, 1.5, RED, "center")
 
-    # recipient address. The bottom 5/8" stays blank for the USPS barcode.
+    # recipient address. Every name gets its own bold green line. The block
+    # starts higher when there are more lines so the bottom 5/8" stays blank
+    # for the USPS barcode.
+    lines = address_lines(friend)
+    n_names = len(names(friend))
     ax, aw = divider_x + 0.3 * inch, W - m - (divider_x + 0.3 * inch)
-    ay, leading = 1.95 * inch, 18
-    for i, line in enumerate(address_lines(friend)):
-        font = "sans-medium" if i == 0 else "sans"
+    leading = 18
+    ay = max(1.95 * inch, 0.85 * inch + (len(lines) - 1) * leading)
+    for i, line in enumerate(lines):
+        is_name = i < n_names
+        font = "sans-medium" if is_name else "sans"
         size = fit_size(c, line, font, 10.5, aw)
-        c.setFillColor(GREEN if i == 0 else INK)
+        c.setFillColor(GREEN if is_name else INK)
         c.setFont(font, size)
         c.drawString(ax, ay - i * leading, line)
         c.setStrokeColor(RULE)
@@ -403,6 +431,8 @@ def main():
     if not friends:
         sys.exit("no friends found in CSV (needs a 'name' column)")
     for slot, path in cfg["photos"].items():
+        if path == "skyline":
+            continue
         if not (HERE / path).exists() and not Path(path).exists():
             print(f"note: no photo at {path}, a placeholder will be used", file=sys.stderr)
 
