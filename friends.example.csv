@@ -1,0 +1,4 @@
+name,address1,address2,city,state,zip,country,message,theme
+Alex Rivera,123 Maple Street,Apt 4B,Portland,OR,97205,,,
+Jordan Lee,456 Oak Avenue,,Austin,TX,78701,,,ornaments
+Sam Patel,789 Pine Road,,Brooklyn,NY,11201,,"Hey {first_name}!\n\nMiss our late-night diner runs. Come visit soon, the guest room is yours.\n\nHappy holidays,\n{sender}",pines
