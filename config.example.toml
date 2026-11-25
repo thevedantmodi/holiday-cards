@@ -1,3 +1,7 @@
+# Copy this file to config.toml and fill in your details:
+#     cp config.example.toml config.toml
+# config.toml is in .gitignore, so your name and address never get committed.
+
 # ---- Front ----------------------------------------------------------------
 signoff   = "WITH LOVE,"          # small spaced-out caps, top left
 signature = "the Browns"          # script, next to the signoff
