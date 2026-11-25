@@ -3,6 +3,7 @@ signoff   = "WITH LOVE,"          # small spaced-out caps, top left
 signature = "the Browns"          # script, next to the signoff
 headline  = "MERRY CHRISTMAS"     # big serif, bottom left
 dateline  = "DECEMBER 2026"       # small spaced-out caps, bottom right
+border    = true                  # red double-line border around the front
 
 # ---- Back -----------------------------------------------------------------
 # Return address, top-left of the back.
