@@ -8,12 +8,10 @@ short note, your return address, a stamp box and the friend's address.
 
 ## Quick start
 
-1. Put your photos in the `photos/` folder, named:
+1. Put four photos in the `photos/` folder, named:
    - `main.jpg`: the large photo on the front (a portrait photo works best)
    - `top.jpg` and `bottom.jpg`: the two small photos on the front
-   - `back.jpg` (optional): by default the back shows a cartoon of the
-     Manhattan skyline from Gantry Plaza State Park inside a wreath. To use
-     a photo instead, set `back = "photos/back.jpg"` in `config.toml`.
+   - `back.jpg`: the small photo on the back
 
    Any size works. Each photo is cropped to fill its spot, and phone photos
    come out the right way up.

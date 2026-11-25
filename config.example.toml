@@ -25,8 +25,7 @@ note = "Wishing you a merry little Christmas, {first_name}!"
 main   = "photos/main.jpg"     # large photo on the front (portrait-ish)
 top    = "photos/top.jpg"      # small photo, front top-right
 bottom = "photos/bottom.jpg"   # small photo, front bottom-right
-back   = "skyline"             # small picture on the back: "skyline" draws the
-                               # NYC-skyline-in-a-wreath cartoon, or use a photo path
+back   = "photos/back.jpg"     # small photo on the back
 
 # Optional: if a crop cuts off someone's head, say which point of the photo
 # to keep in view, as [left-to-right, top-to-bottom] from 0 to 1.

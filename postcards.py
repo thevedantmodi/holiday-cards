@@ -33,8 +33,6 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen.canvas import Canvas
 
-from skyline import skyline_badge
-
 HERE = Path(__file__).resolve().parent
 W, H = 6 * inch, 4 * inch  # landscape postcard
 DPI = 300                  # resolution photos are resampled to
@@ -59,7 +57,7 @@ DEFAULT_CONFIG = {
         "main": "photos/main.jpg",
         "top": "photos/top.jpg",
         "bottom": "photos/bottom.jpg",
-        "back": "skyline",
+        "back": "photos/back.jpg",
     },
     "focus": {},
 }
@@ -349,16 +347,11 @@ def draw_back(c, friend, cfg):
                 RED if i == 0 else SOFT)
         y -= 8.5
 
-    # small photo, or the skyline-in-a-wreath illustration
+    # small photo
     px, pw = m, divider_x - m - 0.25 * inch
     ptop = y - 0.08 * inch
     pbottom = 1.0 * inch
-    if cfg["photos"]["back"] == "skyline":
-        # the badge reaches 1.17 r above its centre and 1.4 r below (the bow)
-        r = min((ptop - pbottom) / 2.6, pw / 2.4)
-        skyline_badge(c, px + pw / 2, pbottom + 1.42 * r, r)
-    else:
-        place_photo(c, cfg, "back", px, pbottom, pw, ptop - pbottom)
+    place_photo(c, cfg, "back", px, pbottom, pw, ptop - pbottom)
 
     # short note under the photo
     first = first_names(friend)
@@ -431,8 +424,6 @@ def main():
     if not friends:
         sys.exit("no friends found in CSV (needs a 'name' column)")
     for slot, path in cfg["photos"].items():
-        if path == "skyline":
-            continue
         if not (HERE / path).exists() and not Path(path).exists():
             print(f"note: no photo at {path}, a placeholder will be used", file=sys.stderr)
 
