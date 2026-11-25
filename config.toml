@@ -1,0 +1,16 @@
+# Settings shared by every card.
+sender = "Your Name"
+greeting = "Happy Holidays"
+year = "2026"
+
+# Printed small in the top-left of the back. Leave empty ([]) to skip.
+return_address = ["1 Example Lane", "Springfield, IL 62701"]
+
+# Default message. Placeholders: {first_name}, {name}, {sender}.
+# A "message" column in the CSV overrides this per friend.
+message = """Dear {first_name},
+
+Wishing you a cozy season full of warmth, laughter and good food. Thanks for being such a great friend this year. Here's to an even better one ahead!
+
+With love,
+{sender}"""
