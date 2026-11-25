@@ -364,7 +364,7 @@ def draw_back(c, friend, cfg):
     first = first_names(friend)
     note = (friend.get("message") or cfg["note"]).replace("\\n", " ")
     note = note.format(first_name=first, name=" & ".join(names(friend)), sender=cfg["sender"])
-    lines = simpleSplit(note, "serif", 11, pw)
+    lines = simpleSplit(note, "serif", 12, pw)
     if len(lines) > 3:
         print(f"warning: note for {friend['name']} is too long and was cut off", file=sys.stderr)
         lines = lines[:3]
