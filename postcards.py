@@ -1,56 +1,71 @@
 #!/usr/bin/env python3
-"""Generate printable holiday postcards from a CSV of friends.
+"""Generate printable photo holiday postcards from a CSV of friends.
 
 Each friend gets two pages in the output PDF:
-  1. the front: a holiday illustration
-  2. the back: a personal message on the left, their address on the right
+  1. the front: three of your photos, a signature and a greeting
+  2. the back: a small photo, a short note, your return address,
+     a stamp box and their address
 
 Pages are 6 x 4 in (USPS postcard size), ordered front/back/front/back so the
 PDF can be printed double-sided ("flip on short edge") on 4x6 card stock.
 
 Usage:
     python3 postcards.py friends.csv
-    python3 postcards.py friends.csv --theme snow -o out/cards.pdf
+    python3 postcards.py friends.csv -o out/cards.pdf
 """
 
 import argparse
 import csv
-import math
-import random
+import io
 import sys
 import tomllib
 from pathlib import Path
 
-from reportlab.lib.colors import HexColor, Color
+from PIL import Image, ImageFilter, ImageOps
+from reportlab.lib.colors import HexColor
 from reportlab.lib.units import inch
-from reportlab.lib.utils import simpleSplit
+from reportlab.lib.utils import ImageReader, simpleSplit
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen.canvas import Canvas
 
+HERE = Path(__file__).resolve().parent
 W, H = 6 * inch, 4 * inch  # landscape postcard
+DPI = 300                  # resolution photos are resampled to
 
-THEMES = ["snow", "ornaments", "pines"]
+INK = HexColor("#1c1c1c")
+SOFT = HexColor("#6f6a62")
+RULE = HexColor("#d9d3c7")
+PAPER = (247, 245, 240)
 
 DEFAULT_CONFIG = {
-    "sender": "Your Name",
-    "greeting": "Happy Holidays",
-    "year": "2026",
+    "signoff": "WITH LOVE,",
+    "signature": "the Browns",
+    "headline": "MERRY CHRISTMAS",
+    "dateline": "DECEMBER 2026",
+    "sender": "The Browns",
     "return_address": [],
-    "message": (
-        "Dear {first_name},\n\n"
-        "Wishing you a cozy season full of warmth, laughter and good food. "
-        "Thanks for being such a great friend this year. Here's to an even "
-        "better one ahead!\n\n"
-        "With love,\n{sender}"
-    ),
+    "note": "Wishing you a merry little Christmas, {first_name}!",
+    "photos": {
+        "main": "photos/main.jpg",
+        "top": "photos/top.jpg",
+        "bottom": "photos/bottom.jpg",
+        "back": "photos/back.jpg",
+    },
+    "focus": {},
 }
 
-INK = HexColor("#2b2b2b")
-SOFT_INK = HexColor("#6b6b6b")
-RED = HexColor("#b3262e")
-GREEN = HexColor("#1f5135")
-GOLD = HexColor("#c9a227")
-CREAM = HexColor("#f7f1e3")
-NAVY = HexColor("#13223f")
+FONTS = {
+    "serif": "CormorantGaramond-Light.ttf",
+    "script": "HerrVonMuellerhoff-Regular.ttf",
+    "sans": "Montserrat-Regular.ttf",
+    "sans-medium": "Montserrat-Medium.ttf",
+}
+
+
+def register_fonts():
+    for name, file in FONTS.items():
+        pdfmetrics.registerFont(TTFont(name, str(HERE / "fonts" / file)))
 
 
 # --------------------------------------------------------------------------
@@ -58,10 +73,15 @@ NAVY = HexColor("#13223f")
 # --------------------------------------------------------------------------
 
 def load_config(path):
-    cfg = dict(DEFAULT_CONFIG)
+    cfg = {k: (dict(v) if isinstance(v, dict) else v) for k, v in DEFAULT_CONFIG.items()}
     if path and Path(path).exists():
         with open(path, "rb") as f:
-            cfg.update(tomllib.load(f))
+            user = tomllib.load(f)
+        for k, v in user.items():
+            if isinstance(v, dict) and isinstance(cfg.get(k), dict):
+                cfg[k].update(v)
+            else:
+                cfg[k] = v
     return cfg
 
 
@@ -81,9 +101,8 @@ def load_friends(path):
 
 def address_lines(friend):
     lines = [friend["name"], friend.get("address1", ""), friend.get("address2", "")]
-    city = friend.get("city", "")
     state_zip = " ".join(p for p in (friend.get("state", ""), friend.get("zip", "")) if p)
-    lines.append(", ".join(p for p in (city, state_zip) if p))
+    lines.append(", ".join(p for p in (friend.get("city", ""), state_zip) if p))
     country = friend.get("country", "")
     if country and country.upper() not in ("US", "USA", "UNITED STATES"):
         lines.append(country.upper())
@@ -91,277 +110,237 @@ def address_lines(friend):
 
 
 # --------------------------------------------------------------------------
+# Images
+# --------------------------------------------------------------------------
+
+_photo_cache = {}
+
+
+def photo(path, w, h, focus=(0.5, 0.5)):
+    """Crop a photo to fill a w x h (points) box, like CSS object-fit: cover.
+
+    focus is the point (0-1 from left, 0-1 from top) that should stay in view.
+    Returns an ImageReader, or None if the file doesn't exist.
+    """
+    p = Path(path)
+    if not p.is_absolute():
+        p = HERE / p
+    key = (str(p), round(w), round(h), tuple(focus))
+    if key in _photo_cache:
+        return _photo_cache[key]
+    if not p.exists():
+        _photo_cache[key] = None
+        return None
+    im = ImageOps.exif_transpose(Image.open(p)).convert("RGB")
+    target = w / h
+    iw, ih = im.size
+    if iw / ih > target:            # too wide: trim the sides
+        cw, ch = round(ih * target), ih
+    else:                           # too tall: trim top/bottom
+        cw, ch = iw, round(iw / target)
+    fx, fy = focus
+    left = min(max(round(fx * iw - cw / 2), 0), iw - cw)
+    top = min(max(round(fy * ih - ch / 2), 0), ih - ch)
+    im = im.crop((left, top, left + cw, top + ch))
+    px = (round(w / 72 * DPI), round(h / 72 * DPI))
+    if im.width > px[0]:
+        im = im.resize(px, Image.LANCZOS)
+    elif im.width < px[0] * 0.5:
+        print(f"warning: {p.name} is low resolution and may print blurry", file=sys.stderr)
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=92)
+    buf.seek(0)
+    _photo_cache[key] = ImageReader(buf)
+    return _photo_cache[key]
+
+
+_paper = None
+
+
+def paper():
+    """A subtle cotton-paper texture, generated once."""
+    global _paper
+    if _paper is None:
+        size = (900, 600)
+        noise = Image.effect_noise(size, 40).filter(ImageFilter.GaussianBlur(0.7))
+        base = Image.new("RGB", size, PAPER)
+        shade = Image.new("RGB", size, (226, 222, 214))
+        mask = noise.point(lambda v: max(0, v - 120) // 2)
+        tex = Image.composite(shade, base, mask)
+        buf = io.BytesIO()
+        tex.save(buf, "JPEG", quality=88)
+        buf.seek(0)
+        _paper = ImageReader(buf)
+    return _paper
+
+
+# --------------------------------------------------------------------------
 # Drawing helpers
 # --------------------------------------------------------------------------
 
-def snowflake(c, x, y, r, color, width=0.8):
-    c.saveState()
-    c.setStrokeColor(color)
-    c.setLineWidth(width)
-    c.setLineCap(1)
-    for k in range(6):
-        a = k * math.pi / 3
-        dx, dy = math.cos(a), math.sin(a)
-        c.line(x, y, x + dx * r, y + dy * r)
-        for t in (0.45, 0.7):
-            bx, by = x + dx * r * t, y + dy * r * t
-            b = r * 0.28 * (1.1 - t)
-            for s in (-1, 1):
-                ba = a + s * math.pi / 4
-                c.line(bx, by, bx + math.cos(ba) * b, by + math.sin(ba) * b)
-    c.restoreState()
-
-
-def centered_text(c, text, y, font, size, color, x=W / 2, tracking=0):
+def tracked(c, x, y, text, font, size, spacing, color=INK, align="left"):
+    width = c.stringWidth(text, font, size) + spacing * (len(text) - 1)
+    if align == "right":
+        x -= width
+    elif align == "center":
+        x -= width / 2
     c.setFillColor(color)
-    if tracking:
-        t = c.beginText()
-        t.setFont(font, size)
-        t.setCharSpace(tracking)
-        width = c.stringWidth(text, font, size) + tracking * (len(text) - 1)
-        t.setTextOrigin(x - width / 2, y)
-        t.textOut(text)
-        c.drawText(t)
-    else:
-        c.setFont(font, size)
-        c.drawCentredString(x, y, text)
+    c.setFont(font, size)
+    c.drawString(x, y, text, charSpace=spacing)
+    return width
 
 
-def greeting_block(c, cfg, color, accent, y):
-    centered_text(c, cfg["greeting"], y, "Times-BoldItalic", 40, color)
-    centered_text(c, f"SEASON'S GREETINGS  ·  {cfg['year']}", y - 26, "Helvetica", 8.5, accent, tracking=2.2)
+def fit_size(c, text, font, size, max_w, min_size=6):
+    while c.stringWidth(text, font, size) > max_w and size > min_size:
+        size -= 0.5
+    return size
+
+
+def place_photo(c, cfg, slot, x, y, w, h):
+    focus = cfg.get("focus", {}).get(slot, (0.5, 0.5))
+    img = photo(cfg["photos"][slot], w, h, focus)
+    if img:
+        c.drawImage(img, x, y, w, h)
+        return
+    # placeholder so it's obvious where a photo goes
+    c.setFillColor(HexColor("#e8e3d9"))
+    c.rect(x, y, w, h, stroke=0, fill=1)
+    tracked(c, x + w / 2, y + h / 2 + 2, "ADD PHOTO", "sans-medium", 6, 1.5, SOFT, "center")
+    tracked(c, x + w / 2, y + h / 2 - 8, cfg["photos"][slot], "sans", 5.5, 0.3, SOFT, "center")
+
+
+def background(c):
+    c.drawImage(paper(), 0, 0, W, H)
 
 
 # --------------------------------------------------------------------------
-# Fronts
+# Front
 # --------------------------------------------------------------------------
 
-def front_snow(c, cfg, rng):
-    c.setFillColor(NAVY)
-    c.rect(0, 0, W, H, stroke=0, fill=1)
-    # falling snow dots
-    for _ in range(140):
-        a = rng.uniform(0.25, 0.9)
-        c.setFillColor(Color(1, 1, 1, alpha=a))
-        c.circle(rng.uniform(0, W), rng.uniform(0, H), rng.uniform(0.5, 1.8), stroke=0, fill=1)
-    # big flakes
-    for x, y, r in [(0.7, 3.2, 0.42), (5.25, 3.05, 0.5), (0.95, 0.8, 0.3),
-                    (5.35, 0.75, 0.36), (4.4, 3.55, 0.2), (1.7, 3.6, 0.16)]:
-        snowflake(c, x * inch, y * inch, r * inch, Color(1, 1, 1, alpha=0.85), 1.0)
-    # snowy ground
-    c.setFillColor(Color(1, 1, 1, alpha=0.95))
-    p = c.beginPath()
-    p.moveTo(0, 0)
-    p.lineTo(0, 0.45 * inch)
-    p.curveTo(1.5 * inch, 0.75 * inch, 3.5 * inch, 0.2 * inch, W, 0.55 * inch)
-    p.lineTo(W, 0)
-    p.close()
-    c.drawPath(p, stroke=0, fill=1)
-    greeting_block(c, cfg, HexColor("#ffffff"), HexColor("#a9c3e8"), 2.05 * inch)
+def draw_front(c, cfg):
+    background(c)
 
+    # photo grid: one large photo, two stacked on the right
+    gx, gy, gw, gh = 0.55 * inch, 0.72 * inch, 4.9 * inch, 2.62 * inch
+    gap = 0.09 * inch
+    big_w = (gw - gap) * 0.625
+    small_w = gw - gap - big_w
+    small_h = (gh - gap) / 2
+    place_photo(c, cfg, "main", gx, gy, big_w, gh)
+    place_photo(c, cfg, "top", gx + big_w + gap, gy + small_h + gap, small_w, small_h)
+    place_photo(c, cfg, "bottom", gx + big_w + gap, gy, small_w, small_h)
 
-def ornament(c, x, top, string_len, r, color):
-    y = top - string_len - r
-    c.setStrokeColor(SOFT_INK)
-    c.setLineWidth(0.6)
-    c.line(x, top, x, y + r + 4)
-    c.setFillColor(GOLD)
-    c.roundRect(x - r * 0.28, y + r - 1, r * 0.56, 6, 1.2, stroke=0, fill=1)
-    c.setFillColor(color)
-    c.circle(x, y, r, stroke=0, fill=1)
-    # decorative band + highlight
-    c.setStrokeColor(Color(1, 1, 1, alpha=0.55))
-    c.setLineWidth(1.2)
-    c.line(x - r * 0.95, y - r * 0.3, x + r * 0.95, y - r * 0.3)
-    c.line(x - r * 0.95, y + r * 0.05, x + r * 0.95, y + r * 0.05)
-    c.setFillColor(Color(1, 1, 1, alpha=0.35))
-    c.circle(x - r * 0.38, y + r * 0.4, r * 0.18, stroke=0, fill=1)
+    # "WITH LOVE," + script signature that dips over the photos
+    top_y = gy + gh + 0.2 * inch
+    sw = tracked(c, gx + 0.05 * inch, top_y, cfg["signoff"], "sans", 9, 3.2)
+    sig_x = gx + 0.05 * inch + sw + 6
+    sig_size = fit_size(c, cfg["signature"], "script", 54, gx + gw - sig_x)
+    c.setFillColor(INK)
+    c.setFont("script", sig_size)
+    c.drawString(sig_x, top_y - 0.1 * inch, cfg["signature"])
 
-
-def front_ornaments(c, cfg, rng):
-    c.setFillColor(CREAM)
-    c.rect(0, 0, W, H, stroke=0, fill=1)
-    colors = [RED, GREEN, GOLD, HexColor("#2f6f8f"), RED, GREEN, HexColor("#8a2f5c")]
-    xs = [0.55, 1.25, 2.0, 3.0, 4.0, 4.75, 5.45]
-    lens = [0.55, 0.9, 0.35, 0.7, 0.4, 0.95, 0.5]
-    rs = [0.26, 0.22, 0.3, 0.24, 0.28, 0.2, 0.25]
-    for x, l, r, col in zip(xs, lens, rs, colors):
-        ornament(c, x * inch, H, l * inch, r * inch, col)
-    # little sparkles
-    for k in range(14):
-        snowflake(c, (0.45 + k * 0.39 + rng.uniform(-0.08, 0.08)) * inch,
-                  (0.62 + (0.2 if k % 2 else -0.12) + rng.uniform(-0.05, 0.05)) * inch,
-                  rng.uniform(0.045, 0.075) * inch, GOLD, 0.6)
-    greeting_block(c, cfg, RED, GREEN, 1.55 * inch)
-    c.setStrokeColor(GOLD)
-    c.setLineWidth(1.5)
-    c.rect(0.15 * inch, 0.15 * inch, W - 0.3 * inch, H - 0.3 * inch, stroke=1, fill=0)
-
-
-def pine(c, x, base, h, color):
-    w = h * 0.55
-    c.setFillColor(HexColor("#5a3b22"))
-    c.rect(x - w * 0.07, base, w * 0.14, h * 0.12, stroke=0, fill=1)
-    c.setFillColor(color)
-    for i in range(3):
-        y0 = base + h * (0.1 + i * 0.25)
-        ww = w * (1 - i * 0.25)
-        p = c.beginPath()
-        p.moveTo(x - ww / 2, y0)
-        p.lineTo(x + ww / 2, y0)
-        p.lineTo(x, y0 + h * 0.45)
-        p.close()
-        c.drawPath(p, stroke=0, fill=1)
-
-
-def front_pines(c, cfg, rng):
-    c.setFillColor(HexColor("#8f1d24"))
-    c.rect(0, 0, W, H, stroke=0, fill=1)
-    for _ in range(60):
-        c.setFillColor(Color(1, 1, 1, alpha=rng.uniform(0.2, 0.6)))
-        c.circle(rng.uniform(0, W), rng.uniform(1.0, H) , rng.uniform(0.4, 1.2), stroke=0, fill=1)
-    # back hill + trees
-    c.setFillColor(HexColor("#f3e9dc"))
-    p = c.beginPath()
-    p.moveTo(0, 0)
-    p.lineTo(0, 0.9 * inch)
-    p.curveTo(2 * inch, 1.25 * inch, 4 * inch, 0.6 * inch, W, 1.0 * inch)
-    p.lineTo(W, 0)
-    p.close()
-    c.drawPath(p, stroke=0, fill=1)
-    for x, base, h, col in [(0.45, 0.82, 1.1, GREEN), (0.95, 0.85, 0.8, HexColor("#2c6b47")),
-                            (5.05, 0.85, 1.15, GREEN), (5.6, 0.92, 0.85, HexColor("#2c6b47")),
-                            (4.6, 0.82, 0.6, HexColor("#3c7d56"))]:
-        pine(c, x * inch, base * inch, h * inch, col)
-    # front hill
-    c.setFillColor(HexColor("#ffffff"))
-    p = c.beginPath()
-    p.moveTo(0, 0)
-    p.lineTo(0, 0.5 * inch)
-    p.curveTo(2 * inch, 0.2 * inch, 4 * inch, 0.8 * inch, W, 0.45 * inch)
-    p.lineTo(W, 0)
-    p.close()
-    c.drawPath(p, stroke=0, fill=1)
-    star_x, star_y = W / 2, 3.35 * inch
-    c.setFillColor(GOLD)
-    p = c.beginPath()
-    for k in range(10):
-        r = 0.16 * inch if k % 2 == 0 else 0.065 * inch
-        a = math.pi / 2 + k * math.pi / 5
-        (p.moveTo if k == 0 else p.lineTo)(star_x + r * math.cos(a), star_y + r * math.sin(a))
-    p.close()
-    c.drawPath(p, stroke=0, fill=1)
-    greeting_block(c, cfg, HexColor("#ffffff"), HexColor("#f2c9a0"), 2.35 * inch)
-
-
-FRONTS = {"snow": front_snow, "ornaments": front_ornaments, "pines": front_pines}
+    # headline + date under the photos
+    base_y = 0.24 * inch
+    date_w = c.stringWidth(cfg["dateline"], "sans", 8.5) + 2.6 * (len(cfg["dateline"]) - 1)
+    tracked(c, gx + gw, base_y + 2, cfg["dateline"], "sans", 8.5, 2.6, align="right")
+    head_size = fit_size(c, cfg["headline"], "serif", 38, gw - date_w - 0.25 * inch)
+    c.setFillColor(INK)
+    c.setFont("serif", head_size)
+    c.drawString(gx - 0.04 * inch, base_y, cfg["headline"])
 
 
 # --------------------------------------------------------------------------
-# Back (message + address)
+# Back
 # --------------------------------------------------------------------------
 
 def draw_back(c, friend, cfg):
-    c.setFillColor(HexColor("#ffffff"))
-    c.rect(0, 0, W, H, stroke=0, fill=1)
-    m = 0.25 * inch
+    background(c)
+    m = 0.3 * inch
     divider_x = 3.0 * inch
 
-    # small holiday accent in the top-left corner
-    snowflake(c, m + 6, H - m - 6, 6, RED, 0.7)
+    # return address, top-left (where USPS expects it)
+    ret = [cfg["sender"], *cfg.get("return_address", [])]
+    y = H - m - 5
+    for i, line in enumerate(ret):
+        tracked(c, m, y, line.upper(), "sans-medium" if i == 0 else "sans", 5.8, 0.9,
+                INK if i == 0 else SOFT)
+        y -= 8.5
 
-    # return address (top-left, small)
-    ret = cfg.get("return_address") or []
-    c.setFillColor(SOFT_INK)
-    c.setFont("Helvetica", 6.5)
-    for i, line in enumerate([cfg["sender"], *ret] if ret else []):
-        c.drawString(m + 18, H - m - 3 - i * 8, line)
+    # small photo
+    px, pw = m, divider_x - m - 0.25 * inch
+    ptop = y - 0.08 * inch
+    pbottom = 1.0 * inch
+    place_photo(c, cfg, "back", px, pbottom, pw, ptop - pbottom)
 
-    # message (left half)
+    # short note under the photo
     first = friend["name"].split()[0]
-    template = friend.get("message") or cfg["message"]
-    text = template.format(first_name=first, name=friend["name"], sender=cfg["sender"])
-    font, size, leading = "Times-Italic", 11, 14
-    box_w = divider_x - m - 0.2 * inch
-    lines = []
-    for para in text.replace("\\n", "\n").split("\n"):
-        lines.extend(simpleSplit(para, font, size, box_w) if para.strip() else [""])
-    top = H - m - (0.55 * inch if ret else 0.35 * inch)
-    max_lines = int((top - 0.4 * inch) / leading) + 1
-    if len(lines) > max_lines:
-        print(f"warning: message for {friend['name']} is too long and was cut off", file=sys.stderr)
-        lines = lines[:max_lines]
+    note = (friend.get("message") or cfg["note"]).replace("\\n", " ")
+    note = note.format(first_name=first, name=friend["name"], sender=cfg["sender"])
+    lines = simpleSplit(note, "serif", 12, pw)
+    if len(lines) > 3:
+        print(f"warning: note for {friend['name']} is too long and was cut off", file=sys.stderr)
+        lines = lines[:3]
     c.setFillColor(INK)
-    c.setFont(font, size)
+    c.setFont("serif", 12)
     for i, line in enumerate(lines):
-        c.drawString(m, top - i * leading, line)
+        c.drawString(px, pbottom - 0.22 * inch - i * 14, line)
 
     # divider
-    c.setStrokeColor(HexColor("#d6d0c4"))
-    c.setLineWidth(0.75)
-    c.line(divider_x, 0.6 * inch, divider_x, H - 0.45 * inch)
+    c.setStrokeColor(RULE)
+    c.setLineWidth(0.6)
+    c.line(divider_x, 0.7 * inch, divider_x, H - 0.5 * inch)
 
-    # stamp box (top-right)
-    sw, sh = 0.85 * inch, 1.0 * inch
+    # stamp box
+    sw, sh = 0.8 * inch, 0.95 * inch
     sx, sy = W - m - sw, H - m - sh
-    c.setStrokeColor(HexColor("#b9b2a5"))
-    c.setDash(2, 2)
+    c.setStrokeColor(HexColor("#bdb6a8"))
+    c.setLineWidth(0.5)
+    c.setDash(1.5, 2)
     c.rect(sx, sy, sw, sh, stroke=1, fill=0)
     c.setDash()
-    c.setFillColor(HexColor("#b9b2a5"))
-    c.setFont("Helvetica", 6)
-    c.drawCentredString(sx + sw / 2, sy + sh / 2 + 2, "PLACE")
-    c.drawCentredString(sx + sw / 2, sy + sh / 2 - 6, "STAMP HERE")
+    tracked(c, sx + sw / 2, sy + sh / 2 - 2, "STAMP", "sans", 5.5, 1.5, HexColor("#bdb6a8"), "center")
 
-    # recipient address (right half). Bottom 5/8" is left blank for the USPS barcode.
-    addr = address_lines(friend)
-    ax = divider_x + 0.3 * inch
-    size, leading = 11.5, 17
-    ay = 1.95 * inch
-    for i, line in enumerate(addr):
-        c.setStrokeColor(HexColor("#e6e1d6"))
-        c.setLineWidth(0.5)
-        c.line(ax, ay - i * leading - 4, W - m, ay - i * leading - 4)
+    # recipient address. The bottom 5/8" stays blank for the USPS barcode.
+    ax, aw = divider_x + 0.3 * inch, W - m - (divider_x + 0.3 * inch)
+    ay, leading = 1.95 * inch, 18
+    for i, line in enumerate(address_lines(friend)):
+        font = "sans-medium" if i == 0 else "sans"
+        size = fit_size(c, line, font, 10.5, aw)
         c.setFillColor(INK)
-        c.setFont("Helvetica-Bold" if i == 0 else "Helvetica", size)
-        fit = size
-        while c.stringWidth(line, c._fontname, fit) > W - m - ax and fit > 7:
-            fit -= 0.5
-        c.setFont(c._fontname, fit)
+        c.setFont(font, size)
         c.drawString(ax, ay - i * leading, line)
+        c.setStrokeColor(RULE)
+        c.setLineWidth(0.4)
+        c.line(ax, ay - i * leading - 5, W - m, ay - i * leading - 5)
 
 
 # --------------------------------------------------------------------------
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("csv", help="CSV of friends (name,address1,address2,city,state,zip[,country,message,theme])")
+    ap.add_argument("csv", help="CSV of friends (name,address1,address2,city,state,zip[,country,message])")
     ap.add_argument("-o", "--out", default="out/postcards.pdf", help="output PDF path")
-    ap.add_argument("-c", "--config", default="config.toml", help="sender/message settings")
-    ap.add_argument("--theme", choices=THEMES + ["mix"], default="mix",
-                    help="front design for everyone, or 'mix' to rotate (default)")
-    ap.add_argument("--seed", type=int, default=2026, help="random seed for snow/sparkle placement")
+    ap.add_argument("-c", "--config", default="config.toml", help="text, photo and return-address settings")
     args = ap.parse_args()
 
+    register_fonts()
     cfg = load_config(args.config)
     friends = load_friends(args.csv)
     if not friends:
         sys.exit("no friends found in CSV (needs a 'name' column)")
+    for slot, path in cfg["photos"].items():
+        if not (HERE / path).exists() and not Path(path).exists():
+            print(f"note: no photo at {path}, a placeholder will be used", file=sys.stderr)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     c = Canvas(str(out), pagesize=(W, H))
-    c.setTitle(f"{cfg['greeting']} postcards")
-
-    for i, friend in enumerate(friends):
-        theme = (friend.get("theme") or "").lower()
-        if theme not in FRONTS:
-            theme = THEMES[i % len(THEMES)] if args.theme == "mix" else args.theme
-        FRONTS[theme](c, cfg, random.Random(args.seed + i))
+    c.setTitle(f"{cfg['headline'].title()} postcards")
+    for friend in friends:
+        draw_front(c, cfg)
         c.showPage()
         draw_back(c, friend, cfg)
         c.showPage()
-
     c.save()
     print(f"wrote {len(friends)} postcards ({2 * len(friends)} pages) to {out}")
 

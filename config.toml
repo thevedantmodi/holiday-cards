@@ -1,16 +1,28 @@
-# Settings shared by every card.
-sender = "Your Name"
-greeting = "Happy Holidays"
-year = "2026"
+# ---- Front ----------------------------------------------------------------
+signoff   = "WITH LOVE,"          # small spaced-out caps, top left
+signature = "the Browns"          # script, next to the signoff
+headline  = "MERRY CHRISTMAS"     # big serif, bottom left
+dateline  = "DECEMBER 2026"       # small spaced-out caps, bottom right
 
-# Printed small in the top-left of the back. Leave empty ([]) to skip.
+# ---- Back -----------------------------------------------------------------
+# Return address, top-left of the back.
+sender = "The Browns"
 return_address = ["1 Example Lane", "Springfield, IL 62701"]
 
-# Default message. Placeholders: {first_name}, {name}, {sender}.
-# A "message" column in the CSV overrides this per friend.
-message = """Dear {first_name},
+# Short note under the small photo. Placeholders: {first_name}, {name}, {sender}.
+# A "message" column in friends.csv overrides this per friend.
+note = "Wishing you a merry little Christmas, {first_name}!"
 
-Wishing you a cozy season full of warmth, laughter and good food. Thanks for being such a great friend this year. Here's to an even better one ahead!
+# ---- Photos ---------------------------------------------------------------
+# Drop your pictures in the photos/ folder with these names (or change the
+# paths). Any size works: each photo is cropped to fill its spot.
+[photos]
+main   = "photos/main.jpg"     # large photo on the front (portrait-ish)
+top    = "photos/top.jpg"      # small photo, front top-right
+bottom = "photos/bottom.jpg"   # small photo, front bottom-right
+back   = "photos/back.jpg"     # small photo on the back
 
-With love,
-{sender}"""
+# Optional: if a crop cuts off someone's head, say which point of the photo
+# to keep in view, as [left-to-right, top-to-bottom] from 0 to 1.
+[focus]
+# main = [0.5, 0.3]
