@@ -283,7 +283,7 @@ def draw_front(c, cfg):
     top_y = gy + gh + 0.2 * inch
     sw = tracked(c, gx + 0.05 * inch, top_y, cfg["signoff"], "sans", 9, 3.2, GREEN)
     sig_x = gx + 0.05 * inch + sw + 6
-    sig_size = fit_size(c, cfg["signature"], "script", 54, gx + gw - sig_x - 0.6 * inch)
+    sig_size = fit_size(c, cfg["signature"], "script", 32, gx + gw - sig_x - 0.6 * inch)
     c.setFillColor(INK)
     c.setFont("script", sig_size)
     c.drawString(sig_x, top_y - 0.1 * inch, cfg["signature"])
@@ -333,7 +333,7 @@ def draw_back(c, friend, cfg):
         print(f"warning: note for {friend['name']} is too long and was cut off", file=sys.stderr)
         lines = lines[:3]
     c.setFillColor(INK)
-    c.setFont("serif", 12)
+    c.setFont("serif", 11)
     for i, line in enumerate(lines):
         c.drawString(px, pbottom - 0.22 * inch - i * 14, line)
 
