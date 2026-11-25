@@ -36,6 +36,9 @@ DPI = 300                  # resolution photos are resampled to
 INK = HexColor("#1c1c1c")
 SOFT = HexColor("#6f6a62")
 RULE = HexColor("#d9d3c7")
+RED = HexColor("#9e1b2b")      # cranberry
+GREEN = HexColor("#1f4a33")    # pine
+LEAF = HexColor("#2e6b47")
 PAPER = (247, 245, 240)
 
 DEFAULT_CONFIG = {
@@ -196,6 +199,52 @@ def fit_size(c, text, font, size, max_w, min_size=6):
     return size
 
 
+def holly_leaf(c, x, y, length, angle, color):
+    """A spiky holly leaf starting at (x, y), pointing at `angle` degrees."""
+    import math
+    w = length * 0.32
+    tips = [0, 0.22, 0.42, 0.62, 0.8, 1.0]
+    c.saveState()
+    c.translate(x, y)
+    c.rotate(angle)
+    p = c.beginPath()
+    p.moveTo(0, 0)
+    for side in (1, -1):
+        pts = tips if side == 1 else tips[::-1]
+        for a, b in zip(pts, pts[1:]):
+            ya = side * w * math.sin(math.pi * b) ** 0.8
+            mid = (a + b) / 2 * length
+            ym = side * w * 0.55 * math.sin(math.pi * (a + b) / 2) ** 0.8
+            p.curveTo(mid, ym, mid, ym, b * length, ya)
+    p.close()
+    c.setFillColor(color)
+    c.drawPath(p, stroke=0, fill=1)
+    c.setStrokeColor(HexColor("#ffffff"))
+    c.setStrokeAlpha(0.35)
+    c.setLineWidth(length * 0.02)
+    c.line(length * 0.05, 0, length * 0.9, 0)
+    c.restoreState()
+
+
+def holly(c, x, y, size=1.0, angle=0):
+    """A sprig of two holly leaves and three berries centred on (x, y)."""
+    c.saveState()
+    c.translate(x, y)
+    c.rotate(angle)
+    L = 26 * size
+    holly_leaf(c, 0, 0, L, 160, GREEN)
+    holly_leaf(c, 0, 0, L, 20, LEAF)
+    for bx, by in [(-3.2, 2.2), (3.0, 2.6), (0, -2.4)]:
+        bx, by = bx * size, by * size
+        c.setFillColor(RED)
+        c.circle(bx, by, 3.3 * size, stroke=0, fill=1)
+        c.setFillColor(HexColor("#ffffff"))
+        c.setFillAlpha(0.45)
+        c.circle(bx - 1.0 * size, by + 1.1 * size, 0.9 * size, stroke=0, fill=1)
+        c.setFillAlpha(1)
+    c.restoreState()
+
+
 def place_photo(c, cfg, slot, x, y, w, h):
     focus = cfg.get("focus", {}).get(slot, (0.5, 0.5))
     img = photo(cfg["photos"][slot], w, h, focus)
@@ -232,9 +281,9 @@ def draw_front(c, cfg):
 
     # "WITH LOVE," + script signature that dips over the photos
     top_y = gy + gh + 0.2 * inch
-    sw = tracked(c, gx + 0.05 * inch, top_y, cfg["signoff"], "sans", 9, 3.2)
+    sw = tracked(c, gx + 0.05 * inch, top_y, cfg["signoff"], "sans", 9, 3.2, GREEN)
     sig_x = gx + 0.05 * inch + sw + 6
-    sig_size = fit_size(c, cfg["signature"], "script", 54, gx + gw - sig_x)
+    sig_size = fit_size(c, cfg["signature"], "script", 54, gx + gw - sig_x - 0.6 * inch)
     c.setFillColor(INK)
     c.setFont("script", sig_size)
     c.drawString(sig_x, top_y - 0.1 * inch, cfg["signature"])
@@ -242,11 +291,14 @@ def draw_front(c, cfg):
     # headline + date under the photos
     base_y = 0.24 * inch
     date_w = c.stringWidth(cfg["dateline"], "sans", 8.5) + 2.6 * (len(cfg["dateline"]) - 1)
-    tracked(c, gx + gw, base_y + 2, cfg["dateline"], "sans", 8.5, 2.6, align="right")
+    tracked(c, gx + gw, base_y + 2, cfg["dateline"], "sans", 8.5, 2.6, GREEN, align="right")
     head_size = fit_size(c, cfg["headline"], "serif", 38, gw - date_w - 0.25 * inch)
-    c.setFillColor(INK)
+    c.setFillColor(RED)
     c.setFont("serif", head_size)
     c.drawString(gx - 0.04 * inch, base_y, cfg["headline"])
+
+    # holly sprig in the empty top-right corner
+    holly(c, gx + gw - 0.22 * inch, top_y + 0.02 * inch, 0.95, -12)
 
 
 # --------------------------------------------------------------------------
@@ -263,7 +315,7 @@ def draw_back(c, friend, cfg):
     y = H - m - 5
     for i, line in enumerate(ret):
         tracked(c, m, y, line.upper(), "sans-medium" if i == 0 else "sans", 5.8, 0.9,
-                INK if i == 0 else SOFT)
+                RED if i == 0 else SOFT)
         y -= 8.5
 
     # small photo
@@ -288,17 +340,18 @@ def draw_back(c, friend, cfg):
     # divider
     c.setStrokeColor(RULE)
     c.setLineWidth(0.6)
-    c.line(divider_x, 0.7 * inch, divider_x, H - 0.5 * inch)
+    c.line(divider_x, 0.7 * inch, divider_x, H - 0.72 * inch)
+    holly(c, divider_x, H - 0.48 * inch, 0.6, 0)
 
     # stamp box
     sw, sh = 0.8 * inch, 0.95 * inch
     sx, sy = W - m - sw, H - m - sh
-    c.setStrokeColor(HexColor("#bdb6a8"))
+    c.setStrokeColor(RED)
     c.setLineWidth(0.5)
     c.setDash(1.5, 2)
     c.rect(sx, sy, sw, sh, stroke=1, fill=0)
     c.setDash()
-    tracked(c, sx + sw / 2, sy + sh / 2 - 2, "STAMP", "sans", 5.5, 1.5, HexColor("#bdb6a8"), "center")
+    tracked(c, sx + sw / 2, sy + sh / 2 - 2, "STAMP", "sans", 5.5, 1.5, RED, "center")
 
     # recipient address. The bottom 5/8" stays blank for the USPS barcode.
     ax, aw = divider_x + 0.3 * inch, W - m - (divider_x + 0.3 * inch)
@@ -306,7 +359,7 @@ def draw_back(c, friend, cfg):
     for i, line in enumerate(address_lines(friend)):
         font = "sans-medium" if i == 0 else "sans"
         size = fit_size(c, line, font, 10.5, aw)
-        c.setFillColor(INK)
+        c.setFillColor(GREEN if i == 0 else INK)
         c.setFont(font, size)
         c.drawString(ax, ay - i * leading, line)
         c.setStrokeColor(RULE)
